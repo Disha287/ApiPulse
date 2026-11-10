@@ -13,6 +13,7 @@ from app.services.alert_service import (
     trigger_alert_if_not_cooled_down,
 )
 from app.services.anomaly_detector import evaluate_latency_anomaly
+from app.services.rca_service import populate_incident_rca
 
 logger = logging.getLogger("apipulse.prober")
 
@@ -38,6 +39,7 @@ async def execute_probe(
         status_code: Optional[int] = None
         error_message: Optional[str] = None
         is_success: bool = False
+        response_snippet: Optional[str] = None
 
         try:
             response = await client.request(
@@ -49,9 +51,15 @@ async def execute_probe(
             status_code = response.status_code
             is_success = (response.status_code == monitor.expected_status)
             if not is_success:
+                try:
+                    response_snippet = response.text[:300].strip()
+                except Exception:
+                    response_snippet = None
                 error_message = (
                     f"Expected {monitor.expected_status}, got {response.status_code}"
                 )
+                if response_snippet:
+                    error_message += f" | Body: {response_snippet}"
         except httpx.TimeoutException:
             latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
             is_success = False
@@ -109,6 +117,19 @@ async def execute_probe(
                     open_incident.failure_count = monitor.consecutive_failures
                     if not open_incident.trigger_error:
                         open_incident.trigger_error = error_message
+
+                # Automated AI Root-Cause Analysis (LLM SRE Engine + Fallback)
+                if not open_incident.rca_summary:
+                    try:
+                        await populate_incident_rca(
+                            open_incident.id,
+                            response_snippet=response_snippet,
+                            db=session,
+                        )
+                    except Exception as rca_err:
+                        logger.error(
+                            f"Failed to generate RCA for incident {open_incident.id}: {rca_err}"
+                        )
 
                 await trigger_alert_if_not_cooled_down(monitor, open_incident)
 

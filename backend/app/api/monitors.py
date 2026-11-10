@@ -25,6 +25,7 @@ from app.services.analytics_service import (
     get_platform_overview,
 )
 from app.services.prober import execute_probe
+from app.services.rca_service import populate_incident_rca
 
 router = APIRouter(prefix="/api/v1/monitors", tags=["Monitors"])
 
@@ -94,6 +95,23 @@ async def list_recent_anomalies(
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.post("/incidents/{incident_id}/analyze", response_model=IncidentResponse)
+async def analyze_incident(
+    incident_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger or regenerate AI Root-Cause Analysis for a specific incident."""
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with id '{incident_id}' not found",
+        )
+    await populate_incident_rca(incident_id, db=db)
+    await db.refresh(incident)
+    return incident
 
 
 @router.get("/{monitor_id}", response_model=MonitorResponse)
