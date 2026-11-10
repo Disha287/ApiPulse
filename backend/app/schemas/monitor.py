@@ -38,6 +38,8 @@ class ProbeLogResponse(BaseModel):
     latency_ms: float
     is_success: bool
     error_message: Optional[str] = None
+    is_anomaly: bool = False
+    anomaly_score: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 

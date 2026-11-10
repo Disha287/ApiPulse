@@ -15,6 +15,7 @@ API Pulse AI monitors critical HTTP endpoints with high-precision probes, tracks
   - Consecutive Failures 3+: Transitions monitor to `DOWN`, creates an `OPEN` `Incident`, and requests a distributed Redis cooldown lock.
   - Recovery: On subsequent success, resets failure counts to 0, transitions monitor to `HEALTHY`, marks the incident `RESOLVED`, clears the Redis lock, and dispatches a recovery notification.
 - **Redis Alert Deduplication**: Atomic `SET alert:cooldown:<monitor_id> <incident_id> EX 300 NX` prevents notification spam during extended outages.
+- **Hybrid ML Anomaly Detection Engine**: Rolling Z-Score combined with an Unsupervised Isolation Forest (`scikit-learn`) running in a threadpool to catch silent latency degradation without blocking the async event loop.
 - **Time-Series Analytics Engine**: In-database percentile rollups using PostgreSQL `PERCENTILE_CONT(0.50|0.95|0.99)` and chronological time-bucketed rollups.
 - **Chaos Target Simulator** (`http://localhost:9000`): Mock server simulating real-world anomalies (`/health`, `/flaky`, `/latent-spike`, `/rate-limited`, `/down`).
 - **PostgreSQL 16 & Redis 7**: Containerized services configured with persistent volumes via Docker Compose.
@@ -47,6 +48,7 @@ ApiPulse/
 │       │   └── analytics.py    # Time-series & SLA summary schemas
 │       ├── services/
 │       │   ├── prober.py       # High-precision async HTTP prober & 3-strike state machine
+│       │   ├── anomaly_detector.py # Hybrid Rolling Z-Score + Isolation Forest engine
 │       │   ├── alert_service.py# Redis cooldown locks & structured alert dispatching
 │       │   └── analytics_service.py # PostgreSQL percentile calculation engine
 │       └── workers/
@@ -92,6 +94,8 @@ $env:PYTHONPATH="backend"; .\.venv\Scripts\python -m uvicorn main:app --app-dir 
 - `GET /api/v1/monitors/overview` — Platform-wide status counts & 24h global SLA uptime
 - `GET /api/v1/monitors/{id}/metrics?window_hours=24` — P50, P95, P99 latencies and SLA uptime %
 - `GET /api/v1/monitors/{id}/timeseries?window_hours=1&bucket_minutes=1` — Time-bucketed series
+- `GET /api/v1/monitors/{id}/anomalies` — List ML-flagged latency anomalies for monitor
+- `GET /api/v1/monitors/anomalies/recent` — List recent ML anomalies across platform
 - `POST /api/v1/monitors/{id}/probe` — Trigger on-demand manual probe
 - `GET /api/v1/monitors/{id}/incidents` — List all incidents for monitor
 - `GET /api/v1/monitors/incidents/active` — List open incidents across the platform

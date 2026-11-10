@@ -1,16 +1,18 @@
+import asyncio
 from datetime import datetime, timezone
 import logging
 import time
 from typing import Optional
 import uuid
 import httpx
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from app.core.database import AsyncSessionLocal
 from app.models.models import Incident, IncidentStatus, Monitor, MonitorStatus, ProbeLog
 from app.services.alert_service import (
     send_recovery_notification,
     trigger_alert_if_not_cooled_down,
 )
+from app.services.anomaly_detector import evaluate_latency_anomaly
 
 logger = logging.getLogger("apipulse.prober")
 
@@ -21,10 +23,11 @@ async def execute_probe(
 ) -> Optional[ProbeLog]:
     """
     Executes a high-precision asynchronous HTTP health probe against a target monitor.
-    Applies the 3-strike state machine:
+    Applies the 3-strike state machine and hybrid ML latency anomaly detection:
       - 1-2 consecutive failures -> DEGRADED
       - 3+ consecutive failures  -> DOWN (opens Incident & evaluates Redis cooldown alert)
       - Success on open incident -> HEALTHY (resolves Incident & sends recovery)
+      - On successful probe      -> Evaluates rolling Z-Score & Isolation Forest in threadpool
     """
     async with AsyncSessionLocal() as session:
         monitor = await session.get(Monitor, monitor_id)
@@ -68,7 +71,10 @@ async def execute_probe(
         now = datetime.now(timezone.utc)
         monitor.last_checked_at = now
 
-        # --- 3-Strike State Machine ---
+        is_anomaly: bool = False
+        anomaly_score: Optional[float] = None
+
+        # --- 3-Strike State Machine & Anomaly Detection ---
         if not is_success:
             monitor.consecutive_failures += 1
 
@@ -124,6 +130,37 @@ async def execute_probe(
                 open_incident.resolved_at = now
                 await send_recovery_notification(monitor, open_incident)
 
+            # Unsupervised ML Latency Anomaly Detection (Isolation Forest + Rolling Z-Score)
+            hist_stmt = (
+                select(ProbeLog.latency_ms)
+                .where(ProbeLog.monitor_id == monitor.id, ProbeLog.is_success == True)
+                .order_by(desc(ProbeLog.timestamp))
+                .limit(50)
+            )
+            hist_res = await session.execute(hist_stmt)
+            historical_latencies = list(hist_res.scalars().all())
+
+            # Run in threadpool so CPU-bound fitting never blocks the async event loop
+            is_anomaly, anomaly_score = await asyncio.to_thread(
+                evaluate_latency_anomaly, latency_ms, historical_latencies
+            )
+
+            if is_anomaly:
+                baseline_mean = (
+                    round(sum(historical_latencies) / len(historical_latencies), 2)
+                    if historical_latencies
+                    else 0.0
+                )
+                logger.warning(
+                    "\n" + "=" * 65 + "\n"
+                    f"[ML ANOMALY DETECTED] ⚠️ LATENCY SPIKE (Isolation Forest + Z-Score)\n"
+                    f"Monitor:    {monitor.name} (ID: {monitor.id})\n"
+                    f"Target URL: {monitor.url}\n"
+                    f"Latency:    {latency_ms} ms (Baseline Mean: {baseline_mean} ms)\n"
+                    f"Z-Score:    {anomaly_score}σ (Samples: {len(historical_latencies)})\n"
+                    + "=" * 65
+                )
+
         probe_log = ProbeLog(
             monitor_id=monitor.id,
             timestamp=now,
@@ -131,6 +168,8 @@ async def execute_probe(
             latency_ms=latency_ms,
             is_success=is_success,
             error_message=error_message,
+            is_anomaly=is_anomaly,
+            anomaly_score=anomaly_score,
         )
 
         session.add(probe_log)

@@ -22,6 +22,12 @@ async def init_db() -> None:
         await conn.execute(
             text("ALTER TABLE monitors ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0;")
         )
+        await conn.execute(
+            text("ALTER TABLE probe_logs ADD COLUMN IF NOT EXISTS is_anomaly BOOLEAN NOT NULL DEFAULT FALSE;")
+        )
+        await conn.execute(
+            text("ALTER TABLE probe_logs ADD COLUMN IF NOT EXISTS anomaly_score DOUBLE PRECISION;")
+        )
     print("Database tables created and updated successfully!")
     await engine.dispose()
 

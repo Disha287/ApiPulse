@@ -30,7 +30,8 @@ async def get_monitor_metrics(
             MAX(latency_ms) AS max_latency_ms,
             PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency_ms) AS p50_latency_ms,
             PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_latency_ms,
-            PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_ms) AS p99_latency_ms
+            PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_ms) AS p99_latency_ms,
+            COUNT(*) FILTER (WHERE is_anomaly = true)::int AS anomaly_count_24h
         FROM probe_logs
         WHERE monitor_id = :monitor_id
           AND timestamp >= NOW() - (:window_hours * INTERVAL '1 hour')
@@ -76,6 +77,7 @@ async def get_monitor_metrics(
         p99_latency_ms=round(row["p99_latency_ms"], 2)
         if row["p99_latency_ms"] is not None
         else None,
+        anomaly_count_24h=row["anomaly_count_24h"] or 0,
     )
 
 
@@ -172,7 +174,8 @@ async def get_platform_overview(
         """
         SELECT
             COUNT(*)::int AS total_probes,
-            COUNT(*) FILTER (WHERE is_success = true)::int AS successful_probes
+            COUNT(*) FILTER (WHERE is_success = true)::int AS successful_probes,
+            COUNT(*) FILTER (WHERE is_anomaly = true)::int AS anomaly_count_24h
         FROM probe_logs
         WHERE timestamp >= NOW() - INTERVAL '24 hours'
         """
@@ -195,5 +198,6 @@ async def get_platform_overview(
         down_monitors=m_row["down_monitors"] or 0,
         open_incidents_count=inc_row["open_incidents_count"] or 0,
         overall_uptime_24h=overall_uptime_24h,
+        anomaly_count_24h=up_row["anomaly_count_24h"] or 0,
     )
 

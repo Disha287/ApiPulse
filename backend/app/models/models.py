@@ -106,6 +106,8 @@ class ProbeLog(Base):
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
     is_success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_anomaly: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    anomaly_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     monitor: Mapped["Monitor"] = relationship("Monitor", back_populates="probe_logs")
 

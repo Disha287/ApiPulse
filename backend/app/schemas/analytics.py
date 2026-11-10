@@ -17,6 +17,7 @@ class MonitorMetricsSummary(BaseModel):
     p50_latency_ms: Optional[float] = None
     p95_latency_ms: Optional[float] = None
     p99_latency_ms: Optional[float] = None
+    anomaly_count_24h: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -39,6 +40,7 @@ class PlatformOverviewMetrics(BaseModel):
     down_monitors: int
     open_incidents_count: int
     overall_uptime_24h: float
+    anomaly_count_24h: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -80,6 +80,22 @@ async def platform_overview(
     return await get_platform_overview(db)
 
 
+@router.get("/anomalies/recent", response_model=List[ProbeLogResponse])
+async def list_recent_anomalies(
+    limit: int = Query(default=50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve the latest detected anomalies across all platform monitors."""
+    stmt = (
+        select(ProbeLog)
+        .where(ProbeLog.is_anomaly == True)
+        .order_by(desc(ProbeLog.timestamp))
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
 @router.get("/{monitor_id}", response_model=MonitorResponse)
 async def get_monitor(
     monitor_id: uuid.UUID,
@@ -173,6 +189,29 @@ async def monitor_timeseries(
     return await get_monitor_timeseries(
         db, monitor_id, window_hours=window_hours, bucket_minutes=bucket_minutes
     )
+
+
+@router.get("/{monitor_id}/anomalies", response_model=List[ProbeLogResponse])
+async def get_monitor_anomalies(
+    monitor_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve recent detected anomalies for a specific monitor."""
+    monitor = await db.get(Monitor, monitor_id)
+    if not monitor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Monitor with id '{monitor_id}' not found",
+        )
+    stmt = (
+        select(ProbeLog)
+        .where(ProbeLog.monitor_id == monitor_id, ProbeLog.is_anomaly == True)
+        .order_by(desc(ProbeLog.timestamp))
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 
 @router.post("/{monitor_id}/probe", response_model=ProbeLogResponse)

@@ -13,13 +13,20 @@ app = FastAPI(
 
 
 @app.get("/health", status_code=status.HTTP_200_OK)
-async def health():
-    """Sleeps 20-50ms and returns 200 OK."""
-    delay = random.uniform(0.02, 0.05)
+async def health(spike_ms: int = 0):
+    """
+    Sleeps 20-50ms and returns 200 OK.
+    If spike_ms > 0, injects a controlled latency spike to test ML anomaly detection.
+    """
+    if spike_ms > 0:
+        delay = spike_ms / 1000.0
+    else:
+        delay = random.uniform(0.02, 0.05)
     await asyncio.sleep(delay)
     return {
         "status": "healthy",
         "message": "Service is operating normally",
+        "injected_spike": spike_ms > 0,
         "latency_ms": round(delay * 1000, 2),
     }
 
