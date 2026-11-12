@@ -15,8 +15,16 @@ env/
 .env
 .env.local
 
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.eslintcache
+
 # IDEs & Editors
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
@@ -30,4 +38,3 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
-
